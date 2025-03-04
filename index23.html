@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>VERTEXRD</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <!-- Cargamos Mapbox GL CSS y JS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0px 0px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-family: sans-serif;
+        }
+        #title {
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            background: white;
+            padding: 10px 20px;
+            font-weight: bold;
+            font-size: 16px;
+            border-radius: 5px;
+            box-shadow: 0px 0px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-family: sans-serif;
+        }
+        label {
+            display: inline-block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="title">VERTEXRD</div>
+    <div id="controls">
+        <label><input type="checkbox" id="toggleBarrios" checked> Barrios</label><br>
+        <label><input type="checkbox" id="togglePredios" checked> Predios</label><br>
+        <label><input type="checkbox" id="toggleEstacionesMetro" checked> Estaciones Metro</label><br>
+        <!-- Checkbox para Parques y Plazas -->
+        <label><input type="checkbox" id="toggleParques" checked> Parques y Plazas</label><br><br>
+
+        <!-- Búsqueda de predios por Catastro -->
+        <input type="text" id="searchCatastro" placeholder="Código Catastral">
+        <button onclick="buscarPredio()">Buscar</button>
+        <br><br>
+        <!-- Búsqueda de Barrios desde un select -->
+        <select id="searchBarrio">
+            <option value="">-- Seleccione un Barrio --</option>
+        </select>
+        <button onclick="buscarBarrio()">Ir</button>
+    </div>
+
+    <script>
+        // Usa tu propio token aquí
+        mapboxgl.accessToken = 'pk.eyJ1IjoiamZnYXJjaTIiLCJhIjoiY2w5cm10cHZtMDM2bDN4bXk2N3NsNXptNSJ9.q6RaXYWAw-NEMy5OnU_Swg';
+
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/standard-satellite',
+            center: [-69.9104, 18.4861], // Centro en Santo Domingo
+            zoom: 14
+        });
+
+        // Controles básicos: navegación, pantalla completa, geolocalización
+        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+        map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+        map.addControl(new mapboxgl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true
+        }));
+
+        map.on('load', function () {
+            // 1. Agregamos la fuente y capa de BARRIOS
+            map.addSource('barrios', {
+                type: 'vector',
+                url: 'mapbox://jfgarci2.dekw7ifk' // Ajusta si cambiaste el Tileset
+            });
+            map.addLayer({
+                'id': 'barrios-layer',
+                'type': 'fill',
+                'source': 'barrios',
+                'source-layer': 'BARRIOS-9vq7qt', // Ajusta si tu source-layer cambió de nombre
+                'paint': {
+                    'fill-color': 'rgba(255, 0, 0, 0.2)',
+                    'fill-outline-color': 'red'
+                }
+            });
+
+            // 2. Agregamos la fuente y capa de PREDIOS
+            map.addSource('predios', {
+                type: 'vector',
+                url: 'mapbox://jfgarci2.da6wovlc' // Aquí tu Tileset para predios
+            });
+            map.addLayer({
+                'id': 'predios-layer',
+                'type': 'fill',
+                'source': 'predios',
+                'source-layer': 'PREDIOS-1yf4yt', // Ajusta el nombre exacto de tu source-layer
+                'paint': {
+                    'fill-color': 'rgba(0, 0, 0, 0.1)',
+                    'fill-outline-color': 'black'
+                }
+            });
+
+            // 3. Agregamos la fuente y capa de ESTACIONES DEL METRO (puntos)
+            map.addSource('estaciones-metro', {
+                type: 'vector',
+                url: 'mapbox://jfgarci2.6apbbsy0' // Tileset ID
+            });
+            map.addLayer({
+                'id': 'estaciones-metro-layer',
+                'type': 'circle',
+                'source': 'estaciones-metro',
+                'source-layer': 'ESTACIONES_DEL_METRO-4udoox', // Nombre exacto del source-layer
+                'paint': {
+                    'circle-radius': 6,
+                    'circle-color': '#FF8800'
+                }
+            });
+
+            // 4. Agregamos la fuente y capa de PARQUES Y PLAZAS (polígonos)
+            map.addSource('parques-plazas', {
+                type: 'vector',
+                url: 'mapbox://jfgarci2.clgaxnds' // Tileset ID para Parques y Plazas
+            });
+            map.addLayer({
+                'id': 'parques-plazas-layer',
+                'type': 'fill',
+                'source': 'parques-plazas',
+                'source-layer': 'PARQUES_Y_PLAZAS_DN-8276ga', // Nombre exacto del source-layer
+                'paint': {
+                    'fill-color': 'rgba(0, 255, 0, 0.2)',
+                    'fill-outline-color': 'green'
+                }
+            });
+
+            // POPUP para BARRIOS
+            map.on('click', 'barrios-layer', function (e) {
+                const props = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <strong>Barrio:</strong> ${props.DESCRIPCIO || ''}<br>
+                        <strong>Área (km²):</strong> ${props.AREA_EN_KM || ''}<br>
+                        <strong>Densidad:</strong> ${props.DENSIDAD || ''}<br>
+                        <strong>Población 2010:</strong> ${props.POB_2010 || ''}
+                    `)
+                    .addTo(map);
+            });
+
+            // POPUP para PREDIOS
+            map.on('click', 'predios-layer', function (e) {
+                const props = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <strong>id:</strong> ${props.id || ''}<br>
+                        <strong>Actividad:</strong> ${props.actividad || ''}<br>
+                        <strong>Barrio:</strong> ${props.barrio_ || ''}<br>
+                        <strong>Catastro:</strong> ${props.catastro || ''}<br>
+                        <strong>Código ALT:</strong> ${props.codigo_alt || ''}<br>
+                        <strong>Equipamiento:</strong> ${props.equipamien || ''}<br>
+                        <strong>Estado:</strong> ${props.estado_des || ''}<br>
+                        <strong>Estrato:</strong> ${props.estrato || ''}<br>
+                        <strong>MZ:</strong> ${props.mz || ''}<br>
+                        <strong>Normativas:</strong> ${props.normativas || ''}<br>
+                        <strong>Sub-Barrio:</strong> ${props.sub_barrio || ''}<br>
+                        <strong>Unidades:</strong> ${props.unidades || ''}<br>
+                        <strong>Uso:</strong> ${props.uso || ''}
+                    `)
+                    .addTo(map);
+            });
+
+            // POPUP para ESTACIONES DEL METRO
+            map.on('click', 'estaciones-metro-layer', function (e) {
+                const props = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <strong>ID:</strong> ${props.id || ''}<br>
+                        <strong>Nombre:</strong> ${props.NOMBRE || ''}<br>
+                        <strong>Uso:</strong> ${props.USO || ''}
+                    `)
+                    .addTo(map);
+            });
+
+            // POPUP para PARQUES Y PLAZAS
+            map.on('click', 'parques-plazas-layer', function (e) {
+                const props = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <strong>Área (km²):</strong> ${props.AREA_EN_KM || ''}<br>
+                        <strong>Categoría:</strong> ${props.CATEGORIA || ''}<br>
+                        <strong>Clasificación:</strong> ${props.CLASIF_POT || ''}<br>
+                        <strong>Nombre:</strong> ${props.NOMBRE || ''}<br>
+                        <strong>Superficie:</strong> ${props.SUPERCIFIE || ''}<br>
+                        <strong>Código:</strong> ${props.CODIGO || ''}
+                    `)
+                    .addTo(map);
+            });
+
+            // Rellenar dinámicamente el select de barrios con los valores de la capa
+            const allBarrioFeatures = map.querySourceFeatures('barrios', {
+                sourceLayer: 'BARRIOS-9vq7qt'
+            });
+
+            // Extraemos nombres únicos
+            const barrioNames = [...new Set(allBarrioFeatures.map(f => f.properties.DESCRIPCIO))].sort();
+
+            // Llenamos el select
+            const searchBarrioSelect = document.getElementById('searchBarrio');
+            barrioNames.forEach(barrio => {
+                const option = document.createElement('option');
+                option.value = barrio;
+                option.text = barrio;
+                searchBarrioSelect.appendChild(option);
+            });
+        });
+
+        // Toggle de visibilidad para la capa de Barrios
+        document.getElementById('toggleBarrios').addEventListener('change', function() {
+            map.setLayoutProperty(
+                'barrios-layer',
+                'visibility',
+                this.checked ? 'visible' : 'none'
+            );
+        });
+
+        // Toggle de visibilidad para la capa de Predios
+        document.getElementById('togglePredios').addEventListener('change', function() {
+            map.setLayoutProperty(
+                'predios-layer',
+                'visibility',
+                this.checked ? 'visible' : 'none'
+            );
+        });
+
+        // Toggle de visibilidad para la capa de Estaciones del Metro
+        document.getElementById('toggleEstacionesMetro').addEventListener('change', function() {
+            map.setLayoutProperty(
+                'estaciones-metro-layer',
+                'visibility',
+                this.checked ? 'visible' : 'none'
+            );
+        });
+
+        // Toggle de visibilidad para la capa de Parques y Plazas
+        document.getElementById('toggleParques').addEventListener('change', function() {
+            map.setLayoutProperty(
+                'parques-plazas-layer',
+                'visibility',
+                this.checked ? 'visible' : 'none'
+            );
+        });
+
+        // Función para buscar un predio por Catastro
+        function buscarPredio() {
+            let codigo = document.getElementById('searchCatastro').value;
+            if (!codigo) return;
+
+            // Obtenemos todos los features que están actualmente en el canvas
+            const features = map.queryRenderedFeatures({ layers: ['predios-layer'] });
+
+            // Buscamos la primera coincidencia en catastro
+            const predio = features.find(f => f.properties.catastro === codigo);
+
+            if (predio) {
+                // Centra el mapa en el polígono (tomamos las coords del primer anillo)
+                const coordinates = predio.geometry.coordinates[0][0];
+                map.flyTo({ center: coordinates, zoom: 18 });
+            } else {
+                alert('Predio no encontrado o no está visible en el rango de la vista actual.');
+            }
+        }
+
+        // Función para "ir" a un barrio seleccionado en el dropdown
+        function buscarBarrio() {
+            let barrio = document.getElementById('searchBarrio').value;
+            if (!barrio) return;
+
+            // Obtenemos TODOS los features de la fuente (no solo los renderizados)
+            const allBarrios = map.querySourceFeatures('barrios', {
+                sourceLayer: 'BARRIOS-9vq7qt'
+            });
+
+            // Buscamos el barrio seleccionado
+            for (const feature of allBarrios) {
+                if (feature.properties.DESCRIPCIO === barrio) {
+                    // Centro rápido usando el primer anillo de coordenadas
+                    const coords = feature.geometry.coordinates[0][0];
+                    map.flyTo({ center: coords, zoom: 16 });
+                    return; 
+                }
+            }
+            alert('Barrio no encontrado en la capa.');
+        }
+    </script>
+</body>
+</html>
